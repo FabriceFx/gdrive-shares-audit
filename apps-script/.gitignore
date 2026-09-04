@@ -1,0 +1,4 @@
+# Fichiers de configuration et jetons clasp locaux
+.clasp.json
+.clasprc.json
+.clasp*.json

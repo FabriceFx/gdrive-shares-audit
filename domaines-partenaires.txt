@@ -1,0 +1,12 @@
+# Liste blanche : domaines EXTÉRIEURS dont l'accès est approuvé (clients, prestataires,
+# filiales hors périmètre). Ils restent classés « externes » mais deviennent
+# « Partenaire référencé » et sortent de l'indicateur « Partagés hors organisation ».
+#
+# À ne pas confondre avec domaines-internes.txt, qui liste VOS domaines.
+# Un domaine présent dans les deux fichiers est traité comme interne.
+#
+# Utilisation : python3 audit_drive.py --partner-domains domaines-partenaires.txt
+# Côté Apps Script : python3 build_apps_script.py, ou setPartnerDomains('client.com')
+#
+# exemple-client.com
+# agence-partenaire.fr

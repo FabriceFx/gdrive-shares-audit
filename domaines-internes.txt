@@ -1,0 +1,17 @@
+# Domaines de VOTRE organisation : le domaine principal et tous les domaines secondaires
+# ou alias déclarés dans la console d'administration (Compte > Domaines > Gérer les domaines).
+# Un domaine par ligne ; les lignes vides et celles commençant par # sont ignorées.
+#
+# Sans cette liste, un collègue hébergé sur un domaine secondaire serait compté « externe ».
+#
+# EXCLUSION VOLONTAIRE : n'ajoutez jamais un domaine en <domaine>.guest.google, même s'il
+# figure dans la console. Google le provisionne pour les identités invitées (partage avec
+# des visiteurs extérieurs) : le compter comme interne masquerait des accès réellement
+# externes, c'est-à-dire précisément ce que cet audit doit révéler. Le build refuse d'ailleurs
+# de générer si un tel domaine apparaît ici.
+#
+# Utilisation : python3 audit_drive.py --internal-domains domaines-internes.txt
+# Côté Apps Script : python3 build_apps_script.py, ou setInternalDomains('a.fr,b.com')
+#
+# exemple.fr
+# exemple-secondaire.com

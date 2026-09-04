@@ -1,0 +1,858 @@
+<style>
+  body.pending header.top, body.pending nav.jump, body.pending .wrap { display: none; }
+  .scan{position:fixed;inset:0;display:flex;align-items:flex-start;justify-content:center;
+    padding:24px;background:var(--surface-0);overflow:auto;-webkit-overflow-scrolling:touch}
+  .scan-card{max-width:520px;width:100%;margin:auto}
+  .scan-card h3{font-size:17px;margin-bottom:4px}
+  .scan-card .bar-track{margin:16px 0 10px}
+  .scan-steps{list-style:none;margin:14px 0 0;padding:0;font-size:12.5px;color:var(--text-muted)}
+  .scan-steps li{padding:3px 0}
+  .scan-steps li.done{color:var(--text-secondary)}
+  .scan-err{border-left:3px solid var(--st-critical);padding:10px 14px;margin-top:14px;
+    background:var(--surface-2);border-radius:0 8px 8px 0;font-size:12.5px}
+  [hidden]{display:none !important}   /* sinon .pick-actions{display:flex} l'emporte */
+  .pick-group{margin:16px 0 0}
+  .pick-group h4{font-size:13px;margin:0 0 6px;color:var(--text-secondary);text-transform:uppercase;
+    letter-spacing:.03em}
+  .pick-group .toggle{display:flex;margin:2px 0}
+  .pick-list{margin:8px 0 0 22px;max-height:min(34vh,300px);overflow:auto;border:1px solid var(--line);
+    border-radius:8px;padding:8px 10px;background:var(--surface-2)}
+  .pick-list label{display:flex;align-items:center;gap:7px;padding:3px 0;font-size:13px;cursor:pointer}
+  .pick-actions{display:flex;gap:12px;margin:6px 0 0 22px;font-size:12px}
+  .pick-actions a{cursor:pointer;text-decoration:underline}
+  .pick-empty{color:var(--text-muted);font-size:12.5px;padding:4px 0}
+  #go{margin-top:18px}
+  .live{position:fixed;left:50%;bottom:20px;transform:translateX(-50%);z-index:70;display:flex;
+    align-items:center;gap:10px;background:var(--surface-1);border:1px solid var(--line-strong);
+    border-radius:999px;padding:9px 18px;box-shadow:var(--shadow);font-size:12.5px;
+    color:var(--text-secondary);max-width:90vw}
+  .live-dot{width:8px;height:8px;border-radius:50%;background:var(--series-1);flex:0 0 8px;
+    animation:pulse 1.1s ease-in-out infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:.25}}
+  .live-count{color:var(--text-primary);font-variant-numeric:tabular-nums;white-space:nowrap}
+  .live-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .modal{position:fixed;inset:0;z-index:90;display:flex;align-items:flex-start;
+    justify-content:center;background:rgba(0,0,0,.45);padding:24px;overflow:auto}
+  .modal-card{background:var(--surface-1);border:1px solid var(--line-strong);border-radius:12px;
+    padding:20px 22px;max-width:560px;width:100%;box-shadow:var(--shadow);margin:auto}
+  .modal-card h3{font-size:16px;margin:0 0 4px}
+  .modal-card textarea{width:100%;min-height:150px;background:var(--surface-2);color:var(--text-primary);
+    border:1px solid var(--line-strong);border-radius:8px;padding:10px;font-family:ui-monospace,
+    SFMono-Regular,Menlo,monospace;font-size:12.5px;resize:vertical}
+  .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:14px;align-items:center}
+  .modal-actions .path{margin-right:auto}
+  .toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:80;max-width:520px;
+    background:var(--surface-1);border:1px solid var(--line-strong);border-radius:10px;padding:12px 16px;
+    box-shadow:var(--shadow);font-size:13px}
+</style>
+
+<div class="live" id="live" hidden>
+  <span class="live-dot"></span>
+  <span class="live-text" id="live-text">Analyse en cours…</span>
+  <span class="live-count" id="live-count"></span>
+</div>
+
+<div class="scan" id="scan">
+  <div class="card scan-card">
+    <h3>Analyse de vos partages Google Drive</h3>
+    <p class="sub" id="scan-step">Connexion à votre compte…</p>
+
+    <div id="picker" hidden>
+      <p class="sub" style="margin-bottom:2px">Choisissez ce que vous voulez analyser.
+        Un dossier sélectionné inclut tous ses sous-dossiers.</p>
+      <div class="pick-group">
+        <h4>Mon Drive</h4>
+        <label class="toggle"><input type="radio" name="md" value="all" checked> Tout Mon Drive</label>
+        <label class="toggle"><input type="radio" name="md" value="some"> Certains dossiers seulement</label>
+        <label class="toggle"><input type="radio" name="md" value="none"> Ne pas analyser Mon Drive</label>
+        <div class="pick-actions" id="folder-actions" hidden>
+          <a id="folder-all">tout cocher</a><a id="folder-none">tout décocher</a></div>
+        <div class="pick-list" id="folder-list" hidden></div>
+      </div>
+      <div class="pick-group">
+        <h4>Drives partagés</h4>
+        <label class="toggle"><input type="radio" name="sd" value="all" checked> Tous</label>
+        <label class="toggle"><input type="radio" name="sd" value="some"> Certains seulement</label>
+        <label class="toggle"><input type="radio" name="sd" value="none"> Aucun</label>
+        <div class="pick-actions" id="drive-actions" hidden>
+          <a id="drive-all">tout cocher</a><a id="drive-none">tout décocher</a></div>
+        <div class="pick-list" id="drive-list" hidden></div>
+      </div>
+      <button class="primary" id="go">Lancer l'analyse</button>
+    </div>
+    <div class="bar-track" id="scan-bar-wrap"><div class="bar-fill" id="scan-bar" style="width:2%;background:var(--series-1)"></div></div>
+    <p class="sub" id="scan-count" style="margin:0"></p>
+    <ul class="scan-steps" id="scan-log"></ul>
+    <div id="scan-err"></div>
+  </div>
+</div>
+
+<script>
+/* Amorçage de la version Apps Script : le navigateur pilote la pagination, agrège
+   le résultat, puis passe la main au tableau de bord commun (bootReport). */
+(function () {
+  let t0 = Date.now(), records = [], cfg = null, pages = 0;
+  let creatorsAvailable = true, creatorsError = '';
+  let sel = null, targets = null;        // périmètre retenu, conservé pour la relance
+  let scanning = false, goWired = false, pendingResolve = null;
+  let stepEl = document.getElementById('scan-step'), barEl = document.getElementById('scan-bar'),
+      cntEl = document.getElementById('scan-count'), logEl = document.getElementById('scan-log');
+  document.body.className = 'pending';
+
+  function call(fn, args) {
+    return new Promise(function (res, rej) {
+      google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn].apply(null, args || []);
+    });
+  }
+  function log(msg) { var li = document.createElement('li'); li.textContent = '✓ ' + msg; li.className = 'done'; logEl.appendChild(li); }
+  function step(msg, ratio) {
+    const n = records.length ? records.length.toLocaleString('fr-FR') + ' éléments' : '';
+    stepEl.textContent = msg;                       // carte de démarrage (avant le rapport)
+    barEl.style.width = Math.max(2, Math.min(98, ratio * 100)) + '%';
+    cntEl.textContent = n ? n + ' analysés' : '';
+    const lt = document.getElementById('live-text');  // bandeau, une fois le rapport affiché
+    if (lt) { lt.textContent = msg; document.getElementById('live-count').textContent = n; }
+  }
+  function fail(err) {
+    const box = document.getElementById('scan-err');
+    if (!box) {                       // le rapport est déjà affiché : on le garde et on prévient
+      var live = document.getElementById('live');
+      if (live) {
+        live.querySelector('.live-dot').style.background = 'var(--st-critical)';
+        document.getElementById('live-text').textContent =
+          'Analyse interrompue — les données affichées sont partielles : ' +
+          String(err && err.message || err).slice(0, 120);
+        document.getElementById('live-count').textContent = '';
+      }
+      return;
+    }
+    box.innerHTML =
+      '<div class="scan-err"><b>L\'analyse a échoué.</b><br>' +
+      String(err && err.message || err).replace(/[&<>]/g, '') +
+      '<br><br>Si le message évoque une autorisation, rechargez la page pour relancer le consentement. ' +
+      'S\'il évoque un quota, réessayez dans quelques minutes.</div>';
+    stepEl.textContent = 'Interrompu.';
+    barEl.style.background = 'var(--st-critical)';
+  }
+
+  let ROLE_FR = { organizer: 'Gestionnaire', fileOrganizer: 'Gestionnaire de contenu',
+                  writer: 'Contributeur', commenter: 'Commentateur', reader: 'Lecteur' };
+
+  const pct = function (a, b) { return b ? (100 * a / b).toFixed(1).replace('.', ',') + ' %' : '0 %'; };
+
+  /* Agrégations macro — port de gdshares/aggregate.py */
+  function buildSummary(records, me, drives) {
+    const LVL = {}; cfg.levels.forEach(function (l) { LVL[l.key] = l; });
+    // Les Drives d'autres organisations restent consultables dans le détail mais ne
+    // comptent ni dans les indicateurs ni dans la répartition : ce n'est pas votre
+    // exposition, et leur volume fausserait tout.
+    const foreignRecords = records.filter(function (r) { return r.scope === 'Drive externe'; });
+    records = records.filter(function (r) { return r.scope !== 'Drive externe'; });
+    let EXPOSED = 15, PARTNER = 38, EXTERNAL = 40, PUBLIC = 50;
+    let exposure = {}, roles = {}, extDomains = {}, extAccounts = {}, perDrive = {}, folders = [];
+    const totals = { files: 0, folders: 0, mydrive: 0, shared: 0, swm: 0, bytes_exposed: 0 };
+    cfg.levels.forEach(function (l) {
+      exposure[l.key] = { key: l.key, label: l.label, short: l.short, icon: l.icon, status: l.status,
+                          hint: l.hint, rank: l.rank, mydrive: 0, shared: 0, swm: 0, total: 0 };
+    });
+    const emailDom = function (e) { return e && e.indexOf('@') > -1 ? e.split('@').pop().toLowerCase() : ''; };
+    const isInt = function (e) {
+      return me.consumer ? (e || '').toLowerCase() === me.email
+                         : (me.domains || []).indexOf(emailDom(e)) > -1;
+    };
+
+    records.forEach(function (r) {
+      const level = LVL[r.level];
+      totals.files++; if (r.folder) totals.folders++;
+      // « Partagé avec moi » a son propre compteur : le mélanger à Mon Drive fausserait les KPI
+      const bucket = r.scope === 'Drive partagé' ? 'shared' : (r.scope === 'Mon Drive' ? 'mydrive' : 'swm');
+      totals[bucket]++;
+      exposure[r.level][bucket]++; exposure[r.level].total++;
+
+      if (r.scope === 'Drive partagé') {
+        var d = perDrive[r.container] || (perDrive[r.container] =
+          { files: 0, exposed: 0, external: 0, public: 0, own_perms: 0 });
+        d.files++;
+        if (level.rank >= EXPOSED) d.exposed++;
+        if (level.rank >= EXTERNAL) d.external++;
+        if (level.rank >= PUBLIC) d.public++;
+        if (r.perms.some(function (p) { return !p.inherited; })) d.own_perms++;
+      }
+      if (level.rank >= EXPOSED) totals.bytes_exposed += r.size;
+      if (r.folder && level.rank >= EXTERNAL) folders.push(r);
+
+      const seen = {};
+      r.perms.forEach(function (p) {
+        const k = p.role + '|' + p.principal;
+        if (!seen[k]) { roles[p.role] = (roles[p.role] || 0) + 1; seen[k] = 1; }
+        let prank = LVL[p.level].rank, approved = p.level === 'partner';
+        if (prank >= PARTNER && (p.type === 'user' || p.type === 'group')) {
+          var mail = p.principal.toLowerCase(), dom = emailDom(mail) || '(sans domaine)';
+          var dd = extDomains[dom] || (extDomains[dom] = { files: {}, accounts: {}, write: 0 });
+          dd.files[r.id] = 1; dd.accounts[mail] = 1; dd.approved = approved;
+          var a = extAccounts[mail] ||
+                  (extAccounts[mail] = { files: {}, role: '', level: 'private', write: 0 });
+          a.approved = approved;
+          a.files[r.id] = 1;   // deux permissions sur le même fichier ne comptent qu'une fois
+          var RR = { reader: 1, commenter: 2, writer: 3, fileOrganizer: 4, organizer: 5, owner: 6 };
+          if ((RR[p.role] || 0) > (RR[a.role] || 0)) a.role = p.role;
+          if (prank > LVL[a.level].rank) a.level = p.level;
+          if (['writer', 'fileOrganizer', 'organizer', 'owner'].indexOf(p.role) > -1) { a.write++; dd.write++; }
+        } else if (prank >= PARTNER && p.type === 'domain') {
+          var d2 = p.principal.replace(/^@/, '').toLowerCase();
+          var de = extDomains[d2] || (extDomains[d2] = { files: {}, accounts: {}, write: 0 });
+          de.files[r.id] = 1; de.approved = approved;
+        }
+      });
+    });
+
+    let ROLE_LABELS = { owner: 'Propriétaire', organizer: 'Gestionnaire', fileOrganizer: 'Gestionnaire de contenu',
+                        writer: 'Éditeur', commenter: 'Commentateur', reader: 'Lecteur' };
+    const driveByName = {}; drives.forEach(function (d) { driveByName[d.name] = d; });
+
+    const driveRows = Object.keys(perDrive).map(function (name) {
+      let st = perDrive[name], d = driveByName[name] || { members: [], restrictions: {} };
+      const ext = (d.members || []).filter(function (p) {
+        return (p.type === 'user' || p.type === 'group') && !isInt(p.emailAddress) &&
+               (p.emailAddress || '').toLowerCase() !== me.email;
+      });
+      return Object.assign({ name: name, id: d.id }, st, {
+        manageable: d.manageable !== false,
+        myRole: ROLE_FR[d.myRole] || '',
+        managerList: d.managerList || [],
+        members: (d.members || []).length, extMembers: ext.length,
+        managers: (d.members || []).filter(function (p) { return p.role === 'organizer' || p.role === 'fileOrganizer'; }).length,
+        extMemberList: ext.map(function (p) { return p.emailAddress || '?'; }).slice(0, 25),
+        restrictExternal: !!(d.restrictions || {}).domainUsersOnly,
+        restrictSharing: !!(d.restrictions || {}).driveMembersOnly
+      });
+    }).sort(function (a, b) { return b.external - a.external; });
+
+    const foreignByDrive = {};
+    foreignRecords.forEach(function (r) {
+      const f = foreignByDrive[r.container] ||
+              (foreignByDrive[r.container] = { name: r.container, files: 0, public: 0,
+                                               internalEdits: 0, byUser: {},
+                                               internalCreations: 0, creatorsKnown: 0,
+                                               byCreator: {} });
+      f.files++;
+      if (LVL[r.level].rank >= PUBLIC) f.public++;
+      // ce que vos collaborateurs déposent dans un Drive tiers sort de votre patrimoine
+      if (r.lastEditorInternal && r.lastEditor) {
+        f.internalEdits++;
+        f.byUser[r.lastEditor.toLowerCase()] = (f.byUser[r.lastEditor.toLowerCase()] || 0) + 1;
+      }
+      if (r.creatorId) {
+        f.creatorsKnown++;
+        if (r.creatorInternal && r.creator) {
+          f.internalCreations++;
+          f.byCreator[r.creator.toLowerCase()] = (f.byCreator[r.creator.toLowerCase()] || 0) + 1;
+        }
+      }
+    });
+    const foreignRows = Object.keys(foreignByDrive).map(function (n) {
+      const d = driveByName[n] || {};
+      let byUser = foreignByDrive[n].byUser, byCreator = foreignByDrive[n].byCreator;
+      delete foreignByDrive[n].byUser; delete foreignByDrive[n].byCreator;
+      const top = function (obj) {
+        return Object.keys(obj).map(function (e) { return { email: e, files: obj[e] }; })
+                 .sort(function (a, b) { return b.files - a.files; }).slice(0, 10);
+      };
+      return Object.assign(foreignByDrive[n], {
+        id: d.id,
+        contributors: top(byUser), creators: top(byCreator),
+        members: (d.members || []).length,
+        managers: (d.members || []).filter(function (m) { return m.role === 'organizer'; })
+                    .map(function (m) { return m.emailAddress || '?'; }).slice(0, 10)
+      });
+    }).sort(function (a, b) { return b.files - a.files; });
+
+    const sumRank = function (min, max) {
+      return Object.keys(exposure).reduce(function (n, k) {
+        const rk = LVL[k].rank;
+        return n + (rk >= min && (max === undefined || rk <= max) ? exposure[k].total : 0);
+      }, 0);
+    };
+    let exposed = sumRank(EXPOSED), external = sumRank(EXTERNAL), pub = sumRank(PUBLIC), org = sumRank(25, 30);
+    const accounts = Object.keys(extAccounts);
+    // cohérent avec « hors organisation » : un partenaire référencé n'est pas un signal
+    const extWrite = accounts.reduce(function (n, e) {
+      return n + (extAccounts[e].approved ? 0 : extAccounts[e].write);
+    }, 0);
+
+    return {
+      totals: totals,
+      kpis: [].concat(
+        { label: 'Éléments analysés', value: totals.files + foreignRecords.length,
+          sub: totals.mydrive + ' dans Mon Drive · ' + totals.shared + ' dans les Drives partagés' +
+               (totals.swm ? ' · ' + totals.swm + ' partagés avec moi' : '') +
+               (foreignRecords.length ? ' · ' + foreignRecords.length +
+                 " dans des Drives d'autres organisations, hors statistiques" : '') },
+        { label: 'Éléments partagés', value: exposed, status: exposed ? '' : 'good',
+          sub: pct(exposed, totals.files) + ' de vos ' + totals.files + ' éléments' },
+        { label: 'Partagés hors organisation', value: external, status: external ? 'serious' : 'good',
+          sub: accounts.length + ' comptes · ' + Object.keys(extDomains).length + ' domaines' },
+        { label: 'Accessibles par lien public', value: pub, status: pub ? 'critical' : 'good',
+          sub: pub ? 'Aucune authentification requise' : 'Aucun lien public' },
+        { label: "Ouverts à toute l'organisation", value: org, status: org ? 'warning' : 'good',
+          sub: org ? 'Visibles par tout le domaine' : 'Aucun partage domaine' },
+        (me.partners && me.partners.length)
+          ? { label: 'Vers des partenaires référencés', value: exposure.partner.total,
+              status: 'good', sub: me.partners.length + ' domaines en liste blanche' }
+          : null,
+        { label: "Droits d'écriture externes", value: extWrite, status: extWrite ? 'serious' : 'good',
+          sub: 'Permissions en modification hors organisation' +
+               ((me.partners || []).length ? ', partenaires référencés exclus' : '') }
+      ).filter(function (k) { return !!k; }),
+      exposure: cfg.levels.map(function (l) { return exposure[l.key]; }),
+      partnerDomains: (me.partners || []).slice().sort(),
+      roles: Object.keys(roles).map(function (k) { return { role: k, label: ROLE_LABELS[k] || k, count: roles[k] }; })
+        .sort(function (a, b) { return b.count - a.count; }),
+      extDomains: Object.keys(extDomains).map(function (d) {
+        return { domain: d, files: Object.keys(extDomains[d].files).length,
+                 accounts: Object.keys(extDomains[d].accounts).length,
+                 write: extDomains[d].write, approved: !!extDomains[d].approved };
+      }).sort(function (a, b) { return b.files - a.files; }).slice(0, 15),
+      extAccounts: accounts.map(function (e) {
+        return { email: e, files: Object.keys(extAccounts[e].files).length,
+                 role: ROLE_LABELS[extAccounts[e].role] || extAccounts[e].role,
+                 level: extAccounts[e].level, write: extAccounts[e].write,
+                 approved: !!extAccounts[e].approved };
+      }).sort(function (a, b) { return b.files - a.files; }).slice(0, 30),
+      drives: driveRows,
+      foreignDrives: foreignRows,
+      foreignCount: foreignRecords.length,
+      foreignInternalEdits: foreignRows.reduce(function (n, f) { return n + f.internalEdits; }, 0),
+      foreignInternalCreations: foreignRows.reduce(function (n, f) { return n + f.internalCreations; }, 0),
+      creatorsAvailable: creatorsAvailable, creatorsError: creatorsError,
+      topFolders: folders.sort(function (a, b) { return b.score - a.score; }).slice(0, 15).map(function (f) {
+        return { name: f.name, path: f.path, level: f.level, score: f.score, link: f.link, grantees: f.perms.length };
+      }),
+      scopeLabel: 'Mon Drive + Drives partagés'
+    };
+  }
+
+  /* Gestion de la liste blanche depuis le rapport, réservée aux administrateurs déclarés.
+     Le bouton n'apparaît que pour eux ; le serveur revérifie de toute façon. */
+  async function gererListeBlanche() {
+    var conf;
+    try { conf = await call('getPartnerConfig'); }
+    catch (e) { alert('Lecture impossible : ' + (e && e.message || e)); return; }
+
+    const fond = document.createElement('div');
+    fond.className = 'modal';
+    const codeInfo = conf.fromCode.length
+      ? '<p class="sub">' + conf.fromCode.length + ' domaine(s) figés dans le code, non modifiables ici : <span class="mono">'
+        + conf.fromCode.slice(0, 8).join(', ') + (conf.fromCode.length > 8 ? '…' : '') + '</span></p>'
+      : '';
+    const histo = conf.lastBy
+      ? '<span class="path">dernière modification : ' + conf.lastBy + ' — ' + conf.lastAt + '</span>'
+      : '<span class="path">jamais modifiée depuis le rapport</span>';
+
+    fond.innerHTML =
+      '<div class="modal-card">' +
+        '<h3>🤝 Domaines partenaires référencés</h3>' +
+        '<p class="sub">Un domaine par ligne. Ces destinataires restent externes et visibles, mais ' +
+        'sortent des indicateurs « hors organisation » et « droits d\'écriture externes ». ' +
+        'La modification s\'applique à <b>tous les utilisateurs</b>.</p>' +
+        codeInfo +
+        '<textarea id="pd-text"></textarea>' +
+        '<div class="modal-actions">' + histo +
+          '<button id="pd-cancel">Annuler</button>' +
+          '<button class="primary" id="pd-save">Enregistrer et relancer</button>' +
+        '</div>' +
+        '<div id="pd-msg"></div>' +
+      '</div>';
+    document.body.appendChild(fond);
+    const zone = fond.querySelector('#pd-text');
+    zone.value = conf.stored.join('\n');
+    zone.focus();
+
+    function fermer() { fond.remove(); }
+    fond.querySelector('#pd-cancel').addEventListener('click', fermer);
+    fond.addEventListener('click', function (e) { if (e.target === fond) fermer(); });
+
+    fond.querySelector('#pd-save').addEventListener('click', async function () {
+      const bouton = this;
+      bouton.disabled = true;
+      bouton.textContent = 'Enregistrement…';
+      try {
+        var res = await call('savePartnerDomains', [zone.value]);
+        fermer();
+        var t = document.createElement('div');
+        t.className = 'toast';
+        t.textContent = res.effective.length + ' domaine(s) référencé(s)' +
+          ((res.ignored || []).length ? ' · ignorés : ' + res.ignored.join(', ') : '') +
+          ' — nouvelle analyse en cours…';
+        document.body.appendChild(t);
+        setTimeout(function () { t.remove(); }, 12000);
+        await window.__RESCAN__(false);   // reclasser : le niveau est calculé côté serveur
+      } catch (e) {
+        bouton.disabled = false;
+        bouton.textContent = 'Enregistrer et relancer';
+        fond.querySelector('#pd-msg').innerHTML =
+          '<div class="scan-err">' + String(e && e.message || e).replace(/[&<>]/g, '') + '</div>';
+      }
+    });
+  }
+
+  /* Export Google Sheets natif : un classeur à trois feuilles (Synthèse, Éléments,
+     Permissions), écrit par tranches pour ne pas dépasser la taille d'un appel. */
+  window.__EXPORT_SHEETS__ = async function () {
+    const api = window.__AUDIT_EXPORT__;
+    if (!api) return;
+    let D = api.data(), rows = api.filtered(), LVL = api.level;
+    const btn = document.getElementById('sheets');
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    document.body.appendChild(toast);
+    const say = function (t) { toast.textContent = t; };
+
+    try {
+      btn.disabled = true;
+      say('Création du classeur…');
+
+      var sum = [['Audit des partages Google Drive'], [],
+                 ['Compte', D.meta.user], ['Généré le', D.meta.generated],
+                 ['Version', (D.meta.version || 'n/d') + (D.meta.build ? ' · build ' + D.meta.build : '')],
+                 ['Périmètre', D.meta.scopeLabel],
+                 ['Sélection exportée', rows.length + ' élément(s) sur ' + D.files.length], []];
+      sum.push(['Indicateurs', 'Valeur', 'Précision']);
+      D.summary.kpis.forEach(function (k) { sum.push([k.label, k.value, k.sub]); });
+      sum.push([], ['Niveau d\'exposition', 'Éléments', 'Mon Drive', 'Drives partagés', 'Description']);
+      D.summary.exposure.forEach(function (e) {
+        sum.push([e.icon + ' ' + e.label, e.total, e.mydrive, e.shared, e.hint]);
+      });
+      if (D.summary.extDomains.length) {
+        sum.push([], ['Domaine externe', 'Éléments', 'Comptes', 'Droits en modification']);
+        D.summary.extDomains.forEach(function (d) { sum.push(['@' + d.domain, d.files, d.accounts, d.write]); });
+      }
+      if (D.summary.extAccounts.length) {
+        sum.push([], ['Compte externe', 'Éléments', 'Droit le plus élevé', 'Dont en modification']);
+        D.summary.extAccounts.forEach(function (a) { sum.push([a.email, a.files, a.role, a.write]); });
+      }
+      if (D.summary.drives.length) {
+        sum.push([], ['Drive partagé', 'Éléments', 'Membres', 'Membres externes',
+                      'Éléments hors organisation', 'Dont lien public']);
+        D.summary.drives.forEach(function (d) {
+          sum.push([d.name, d.files, d.members, d.extMembers, d.external, d.public]);
+        });
+      }
+
+      var itemHeaders = ['Élément', 'Type', 'Chemin', 'Périmètre', 'Exposition', 'Score',
+                         'Bénéficiaires', 'Rôles', 'Propriétaire', 'Dernier contributeur',
+                         'Contributeur interne', 'Modifié', 'Taille (o)', 'Lien'];
+      var permHeaders = ['Élément', 'Chemin', 'Périmètre', 'Bénéficiaire', 'Type', 'Rôle',
+                         'Exposition', 'Trouvable en recherche', 'Origine', 'Expiration', 'Lien'];
+
+      var res = await call('createSheetsExport', [{
+        title: 'Audit des partages Drive — ' + D.meta.generated.replace(/[/:]/g, '-'),
+        summary: sum, itemHeaders: itemHeaders, permHeaders: permHeaders }]);
+
+      var items = rows.map(function (r) {
+        return [r.name, r.folder ? 'Dossier' : (r.mime || '').split('.').pop(), r.path, r.container,
+                LVL[r.level].label, r.score,
+                r.perms.map(function (p) { return p.principal; }).join(' | '),
+                r.perms.map(function (p) { return p.roleLabel; }).filter(function (v, i, a) { return a.indexOf(v) === i; }).join(' | '),
+                r.owner, r.lastEditor || '', r.lastEditorInternal ? 'oui' : 'non',
+                r.modified, r.size, r.link];
+      });
+      var perms = [];
+      rows.forEach(function (r) {
+        r.perms.forEach(function (p) {
+          perms.push([r.name, r.path, r.container, p.principal, p.type, p.roleLabel,
+                      LVL[p.level].label, p.discoverable ? 'oui' : 'non',
+                      p.inherited ? 'hérité' : 'partage direct',
+                      p.expires ? p.expires.slice(0, 10) : '', r.link]);
+        });
+      });
+
+      var CHUNK = 800;
+      for (var i = 0, row = 2; i < items.length; i += CHUNK) {
+        say('Écriture des éléments… ' + Math.min(i + CHUNK, items.length) + '/' + items.length);
+        row = await call('appendSheetRows', [res.id, 'Éléments', row, items.slice(i, i + CHUNK)]);
+      }
+      for (var j = 0, prow = 2; j < perms.length; j += CHUNK) {
+        say('Écriture des permissions… ' + Math.min(j + CHUNK, perms.length) + '/' + perms.length);
+        prow = await call('appendSheetRows', [res.id, 'Permissions', prow, perms.slice(j, j + CHUNK)]);
+      }
+
+      say('Mise en forme…');
+      await call('finishSheetsExport', [res.id, itemHeaders.length, permHeaders.length]);
+
+      toast.textContent = 'Classeur prêt (' + items.length + ' éléments, ' + perms.length + ' droits) : ';
+      var a = document.createElement('a');
+      a.href = res.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = 'ouvrir dans Google Sheets';
+      toast.appendChild(a);
+      setTimeout(function () { toast.remove(); }, 60000);
+    } catch (e) {
+      toast.textContent = 'Export impossible : ' + (e && e.message || e);
+      setTimeout(function () { toast.remove(); }, 20000);
+    } finally {
+      btn.disabled = false;
+    }
+  };
+
+  /* Export CSV : l'iframe Apps Script bloque les téléchargements directs,
+     on crée donc une feuille Google dans le Drive de l'utilisateur. */
+  window.__EXPORT_CSV__ = function (csvText, rows) {
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = 'Création de la feuille Google (' + rows + ' lignes)…';
+    document.body.appendChild(toast);
+    call('exportCsv', [csvText, rows]).then(function (res) {
+      toast.textContent = 'Export prêt : ';
+      const a = document.createElement('a');
+      a.href = res.url; a.target = '_blank'; a.rel = 'noopener'; a.textContent = res.name;
+      toast.appendChild(a);
+      toast.appendChild(document.createTextNode(' (dans votre Drive)'));
+      setTimeout(function () { toast.remove(); }, 30000);
+    }).catch(function (e) {
+      toast.textContent = "Export impossible : " + (e && e.message || e);
+      setTimeout(function () { toast.remove(); }, 12000);
+    });
+  };
+
+  /* Le serveur rend la main quand une page demande trop d'appels de permissions :
+     on réclame ici les éléments restants, aucun n'est abandonné. */
+  async function completePending(ids, pageRecords) {
+    const byId = {};
+    pageRecords.forEach(function (r) { byId[r.id] = r; });
+    for (var i = 0; i < ids.length; i += 25) {
+      step('Permissions détaillées (' + (i + 1) + '/' + ids.length + ')…', .5);
+      var patch = await call('hydrateFiles', [ids.slice(i, i + 25)]);
+      Object.keys(patch || {}).forEach(function (id) {
+        const rec = byId[id];
+        if (!rec) return;
+        rec.level = patch[id].level; rec.score = patch[id].score; rec.perms = patch[id].perms;
+      });
+    }
+  }
+
+  /* Écran de sélection : renvoie ce que l'utilisateur veut analyser. */
+  function choose(targets) {
+    return new Promise(function (resolve) {
+      const picker = document.getElementById('picker');
+      let fList = document.getElementById('folder-list'), dList = document.getElementById('drive-list');
+      let fActions = document.getElementById('folder-actions'), dActions = document.getElementById('drive-actions');
+
+      function fill(container, items, kind) {
+        if (!items.length) {
+          container.innerHTML = '<div class="pick-empty">Aucun ' +
+            (kind === 'f' ? 'dossier à la racine de Mon Drive' : 'Drive partagé accessible') + '.</div>';
+          return;
+        }
+        container.innerHTML = '';
+        items.forEach(function (it) {
+          const foreign = it.ownership === 'external';
+          // sans le rôle de gestionnaire, vous ne pouvez pas modifier les partages
+          // de ce Drive : l'auditer ne vous donne aucune action
+          const unmanaged = kind === 'd' && !foreign && it.manageable === false;
+          const lab = document.createElement('label');
+          const cb = document.createElement('input');
+          cb.type = 'checkbox'; cb.value = it.id;
+          cb.checked = !foreign && !unmanaged;
+          const span = document.createElement('span');
+          span.textContent = (kind === 'f' ? '📁 ' : '') + it.name;
+          lab.appendChild(cb); lab.appendChild(span);
+          if (foreign || unmanaged) {
+            var tag = document.createElement('span');
+            tag.className = 'badge';
+            tag.textContent = foreign ? 'autre organisation' : 'vous n\'êtes pas gestionnaire';
+            tag.title = foreign
+              ? "Aucun gestionnaire de votre organisation : vous y êtes invité. "
+                + "Analysable, mais exclu de vos statistiques d'exposition."
+              : "Votre rôle : " + (ROLE_FR[it.myRole] || 'accès indirect')
+                + ". Vous ne pouvez pas y modifier les partages ; la remédiation passe par "
+                + ((it.managerList || []).slice(0, 2).join(', ') || 'ses gestionnaires') + '.';
+            lab.appendChild(tag);
+          }
+          container.appendChild(lab);
+        });
+      }
+      fill(fList, targets.folders, 'f');
+      fill(dList, targets.drives, 'd');
+      const anyExcluded = targets.drives.some(function (d) {
+        return d.ownership === 'external' || d.manageable === false;
+      });
+      if (anyExcluded) {
+        // « Tous » masquerait le fait que certains Drives ne sont pas les vôtres
+        var some = Array.prototype.filter.call(document.getElementsByName('sd'),
+          function (r) { return r.value === 'some'; })[0];
+        some.checked = true;
+        dList.hidden = false; dActions.hidden = false;
+      }
+
+      function wire(name, list, actions, allId, noneId) {
+        Array.prototype.forEach.call(document.getElementsByName(name), function (r) {
+          r.addEventListener('change', function () {
+            const some = r.value === 'some' && r.checked;
+            list.hidden = !some; actions.hidden = !some;
+          });
+        });
+        document.getElementById(allId).addEventListener('click', function () {
+          Array.prototype.forEach.call(list.querySelectorAll('input'), function (c) { c.checked = true; });
+        });
+        document.getElementById(noneId).addEventListener('click', function () {
+          Array.prototype.forEach.call(list.querySelectorAll('input'), function (c) { c.checked = false; });
+        });
+      }
+      pendingResolve = resolve;
+      if (!goWired) {           // choose() peut être rappelé : ne pas empiler les écouteurs
+        goWired = true;
+        wire('md', fList, fActions, 'folder-all', 'folder-none');
+        wire('sd', dList, dActions, 'drive-all', 'drive-none');
+        document.getElementById('go').addEventListener('click', valider);
+      }
+
+      function checked(list, items) {
+        const ids = {};
+        Array.prototype.forEach.call(list.querySelectorAll('input:checked'), function (c) { ids[c.value] = 1; });
+        return items.filter(function (it) { return ids[it.id]; });
+      }
+      function mode(name) {
+        const r = Array.prototype.filter.call(document.getElementsByName(name), function (x) { return x.checked; })[0];
+        return r ? r.value : 'all';
+      }
+
+      picker.hidden = false;
+      document.getElementById('scan-bar-wrap').hidden = true;
+      document.getElementById('scan-step').textContent = 'Que voulez-vous analyser ?';
+      function valider() {
+        let md = mode('md'), sd = mode('sd');
+        const folders = md === 'some' ? checked(fList, targets.folders) : [];
+        const drives = sd === 'all' ? targets.drives : (sd === 'some' ? checked(dList, targets.drives) : []);
+        if (md === 'none' && !drives.length) {
+          document.getElementById('scan-err').innerHTML =
+            '<div class="scan-err">Sélectionnez au moins Mon Drive ou un Drive partagé.</div>';
+          return;
+        }
+        if (md === 'some' && !folders.length && !drives.length) {
+          document.getElementById('scan-err').innerHTML =
+            '<div class="scan-err">Aucun dossier coché.</div>';
+          return;
+        }
+        document.getElementById('scan-err').innerHTML = '';
+        picker.hidden = true;
+        document.getElementById('scan-bar-wrap').hidden = false;
+        pendingResolve({ myDrive: md, folders: folders, drives: drives });
+      }
+    });
+  }
+
+/* Le rapport s'affiche dès la première page et se rafraîchit pendant le balayage :
+     sur un gros Drive, l'analyse complète dure plusieurs minutes et il n'y a aucune
+     raison de faire patienter devant une barre de progression. */
+  let PAINT_MS = 1500, reportUp = false, lastPaint = 0;
+
+  function setExportsEnabled(on) {
+    ['csv', 'sheets', 'rescan', 'rescope'].forEach(function (id) {
+      const b = document.getElementById(id);
+      if (!b) return;
+      b.disabled = !on;
+      b.title = on ? '' : 'Disponible à la fin de l\'analyse';
+    });
+  }
+
+  function snapshot(enCours) {
+    // un élément atteint par deux chemins (dossier choisi + Drive, parents multiples)
+    // ne doit compter qu'une fois
+    let uniq = {}, files = [];
+    records.forEach(function (r) { if (!uniq[r.id]) { uniq[r.id] = 1; files.push(r); } });
+    return {
+      meta: {
+        version: cfg.version || 'n/d', build: cfg.build || '',
+        user: cfg.me.email, domain: cfg.me.domain, consumer: cfg.me.consumer,
+        domains: cfg.me.domains || [], generated: cfg.generated,
+        scopeLabel: scopeLabel(sel) + (enCours ? ' — analyse en cours' : ''),
+        duration: Math.round((Date.now() - t0) / 1000) + ' s',
+        apiCalls: pages, partial: false
+      },
+      summary: buildSummary(files, cfg.me, cfg.drives),
+      levels: cfg.levels, files: files
+    };
+  }
+
+  function publish(enCours) {
+    const DATA = snapshot(enCours);
+    if (!reportUp) {
+      document.getElementById('scan').hidden = true;
+      document.body.className = '';
+      document.getElementById('live').hidden = false;
+      bootReport(DATA);
+      reportUp = true;
+    } else if (window.__AUDIT_REFRESH__) {
+      window.__AUDIT_REFRESH__(DATA);
+    }
+    setExportsEnabled(!enCours);
+    lastPaint = Date.now();
+  }
+
+
+  function scopeLabel(sel) {
+    const parts = [];
+    if (sel.myDrive === 'all') parts.push('tout Mon Drive');
+    else if (sel.myDrive === 'some') parts.push(sel.folders.length + ' dossier(s) de Mon Drive');
+    if (sel.drives.length) parts.push(sel.drives.length + ' Drive(s) partagé(s)');
+    return parts.join(' + ') || 'aucun périmètre';
+  }
+
+  (async function run() {
+    try {
+      step('Lecture de votre compte…', .04);
+      targets = await call('getTargets');
+      cfg = { me: targets.me, levels: targets.levels, generated: targets.generated,
+              version: targets.version, build: targets.build, drives: [] };
+      // le bouton de gestion n'est publié que pour un administrateur déclaré
+      if (targets.partnerAdmin) window.__PARTNERS_UI__ = gererListeBlanche;
+      log('Compte ' + targets.me.email +
+          (targets.me.consumer ? '' : ' — organisation @' + targets.me.domain));
+
+      sel = await choose(targets);
+
+      await scanAll();
+    } catch (e) { fail(e); }
+  })();
+
+  /* Rejouer une analyse SANS recharger la page : dans l'iframe Apps Script, le document
+     est servi une seule fois et location.reload() y laisse une page blanche. */
+  async function scanAll() {
+    if (scanning) return;
+    scanning = true;
+    try {
+      step('Préparation…', .06);
+      var members = sel.drives.length ? await call('getDriveMembers', [sel.drives.map(function (d) { return d.id; })]) : [];
+      var byId = {}; members.forEach(function (m) { byId[m.id] = m.members; });
+      cfg.drives = sel.drives.map(function (d) {
+        return { id: d.id, name: d.name, restrictions: d.restrictions || {},
+                 ownership: d.ownership, manageable: d.manageable, myRole: d.myRole,
+                 managerList: d.managerList || [], members: byId[d.id] || [] };
+      });
+
+      var tasks = [];
+      if (sel.myDrive === 'all') tasks.push({ kind: 'mydrive', name: 'Mon Drive' });
+      cfg.drives.forEach(function (d) {
+        tasks.push({ kind: 'drive', driveId: d.id, name: d.name,
+                     foreign: d.ownership === 'external' });
+      });
+
+      var queue = [], seen = {};
+      if (sel.myDrive === 'some' && sel.folders.length) {
+        // les dossiers choisis comptent eux-mêmes comme éléments analysés
+        var roots = await call('scanItems', [sel.folders.map(function (f) { return f.id; })]);
+        records = records.concat(roots);
+        sel.folders.forEach(function (f) { queue.push(f); seen[f.id] = 1; });
+      }
+
+      async function runTask(t, onRecords) {
+        let token = null, n = 0;
+        do {
+          step('Analyse de « ' + t.name + ' »…', Math.min(.95, .1 + pages / 30));
+          var r = await call('scanPage', [t, token]);
+          records = records.concat(r.records);
+          n += r.records.length; pages++;
+          if (r.pending && r.pending.length) await completePending(r.pending, r.records);
+          if (onRecords) onRecords(r.records);
+          token = r.nextPageToken;
+          if (Date.now() - lastPaint > PAINT_MS) publish(true);
+        } while (token);
+        return n;
+      }
+
+      /* Identifiant d'acteur (« people/<id> ») → adresse. Drive Activity ne donne que
+         l'identifiant ; il coïncide avec l'identifiant de permission Drive, déjà connu
+         par les membres du Drive et les derniers contributeurs. */
+      function directory() {
+        const dir = {};
+        (cfg.drives || []).forEach(function (d) {
+          (d.members || []).forEach(function (m) {
+            if (m.id && m.emailAddress) dir[m.id] = m.emailAddress;
+          });
+        });
+        records.forEach(function (r) {
+          if (r.lastEditorId && r.lastEditor) dir[r.lastEditorId] = r.lastEditor;
+        });
+        return dir;
+      }
+
+      async function resolveCreators(task) {
+        let token = null, map = {}, guard = 0;
+        do {
+          step('Créateurs dans « ' + task.name + ' »…', Math.min(.95, .1 + pages / 30));
+          var r = await call('creatorsForDrive', [task.driveId, token]);
+          if (!r.available) { creatorsAvailable = false; creatorsError = r.error || ''; return; }
+          Object.keys(r.creators).forEach(function (id) { map[id] = r.creators[id]; });
+          token = r.nextPageToken;
+        } while (token && ++guard < 40);
+
+        const dir = directory();
+        const internal = function (mail) {
+          return !!mail && (mail.toLowerCase() === cfg.me.email ||
+            (cfg.me.domains || []).indexOf((mail.split('@').pop() || '').toLowerCase()) > -1);
+        };
+        records.forEach(function (r) {
+          if (r.container !== task.name) return;
+          const pid = map[r.id];
+          if (!pid) return;                       // création antérieure à l'historique
+          r.creatorId = pid;
+          r.creator = dir[pid] || '';
+          r.creatorInternal = internal(r.creator);
+        });
+      }
+
+      for (var i = 0; i < tasks.length; i++) {
+        var n = await runTask(tasks[i]);
+        log(tasks[i].name + ' : ' + n + ' élément(s)');
+        // uniquement sur les Drives d'autres organisations : c'est là que la question
+        // « qu'est-ce que nos équipes y ont déposé ? » se pose
+        if (tasks[i].foreign) { await resolveCreators(tasks[i]); publish(true); }
+      }
+
+      // parcours récursif des dossiers retenus
+      var folderTotal = 0;
+      while (queue.length) {
+        var f = queue.shift();
+        folderTotal += await runTask({ kind: 'folder', folderId: f.id, name: f.name },
+          function (batch) {
+            batch.forEach(function (r) {
+              if (r.folder && !seen[r.id]) { seen[r.id] = 1; queue.push({ id: r.id, name: r.name }); }
+            });
+          });
+      }
+      if (sel.myDrive === 'some') log('Dossiers choisis : ' + folderTotal + ' élément(s) parcourus');
+
+      publish(false);
+      var live = document.getElementById('live');
+      live.querySelector('.live-dot').style.animation = 'none';
+      document.getElementById('live-text').textContent = 'Analyse terminée';
+      document.getElementById('live-count').textContent =
+        records.length.toLocaleString('fr-FR') + ' éléments en ' +
+        Math.round((Date.now() - t0) / 1000) + ' s';
+      setTimeout(function () { live.hidden = true; }, 6000);
+    } finally {
+      scanning = false;
+    }
+  }
+
+  window.__RESCAN__ = async function (changeScope) {
+    if (scanning) return;
+    try {
+      if (changeScope) {                       // rouvrir l'écran de choix
+        document.getElementById('scan').hidden = false;
+        document.body.className = 'pending';
+        sel = await choose(targets);
+        document.getElementById('scan').hidden = true;
+        document.body.className = '';
+      }
+      records = []; pages = 0; creatorsAvailable = true; creatorsError = '';
+      var live = document.getElementById('live');
+      live.hidden = false;
+      live.querySelector('.live-dot').style.animation = '';
+      document.getElementById('live-text').textContent = 'Analyse en cours…';
+      document.getElementById('live-count').textContent = '';
+      await scanAll();
+    } catch (e) { fail(e); }
+  };
+
+})();
+</script>

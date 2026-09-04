@@ -1,0 +1,35 @@
+# Identifiants et secrets (OAuth, tokens, clés de service)
+credentials*.json
+token*.json
+service-account*.json
+*.pem
+*.key
+
+# Clasp (Google Apps Script) - Ne JAMAIS committer de scriptId ou de jetons
+.clasp.json
+.clasprc.json
+.clasp*.json
+**/.clasp.json
+**/.clasprc.json
+
+# Données locales, communication et rapports
+config-local/
+communication/
+rapports/
+*.csv
+
+# Python et environnements virtuels
+.venv/
+venv/
+ENV/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Système d'exploitation et éditeurs
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+.vscode/
+.idea/
