@@ -45,7 +45,9 @@ def sync_version() -> str:
     build = datetime.datetime.now().strftime("%Y%m%d-%H%M")
     code = CODE_GS.read_text(encoding="utf-8")
     for name, value in (("APP_VERSION", version), ("APP_BUILD", build)):
-        code, n = re.subn(rf"var {name} = '[^']*';", f"var {name} = '{value}';", code, count=1)
+        # Tolérant en lecture (const ou var), toujours const en écriture : une copie
+        # ancienne de Code.gs se construit encore, et le code produit reste en ES6+.
+        code, n = re.subn(rf"(?:const|var) {name} = '[^']*';", f"const {name} = '{value}';", code, count=1)
         assert n == 1, f"constante {name} introuvable dans Code.gs"
     CODE_GS.write_text(code, encoding="utf-8")
     print(f"  version : {version} (build {build})")
@@ -70,8 +72,8 @@ def sync_domains() -> None:
                          "les compter comme internes masquerait des accès externes.")
 
     for name, domains in lists.items():
-        block = f"var {name} = [\n" + "".join(f"  '{d}',\n" for d in domains) + "];"
-        code, n = re.subn(rf"var {name} = \[\n(?:.*?\n)*?\];", block, code, count=1)
+        block = f"const {name} = [\n" + "".join(f"  '{d}',\n" for d in domains) + "];"
+        code, n = re.subn(rf"(?:const|var) {name} = \[\n(?:.*?\n)*?\];", block, code, count=1)
         assert n == 1, f"constante {name} introuvable dans Code.gs"
         print(f"  {name} : {len(domains)} domaine(s)")
     CODE_GS.write_text(code, encoding="utf-8")
