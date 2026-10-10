@@ -60,6 +60,32 @@ const principalOf = fn('principalOf');
 const riskScore = fn('riskScore');
 const emailDomain = fn('emailDomain');
 
+/**
+ * Monte le projet dans un bac neuf, services Google simulés.
+ *
+ * Un bac par cas : l'état du socle — le registre des échecs absorbés, entre
+ * autres — vit en portée globale, et un cas ne doit pas hériter du précédent.
+ * Un service absent de `services` reste absent du bac, comme un service
+ * avancé non activé l'est dans Apps Script : son nom lève alors une
+ * ReferenceError.
+ */
+const monterProjet = (services) => {
+  const bac = {
+    console: { log: () => {}, warn: () => {}, error: () => {} },
+    JSON, Math, Number, String, Object, Array, Boolean, RegExp, Error, Date,
+    CacheService: { getUserCache: () => ({ get: () => null, put: () => {} }) },
+    Utilities: { sleep: () => {}, formatDate: () => '2026-09-12 00:00:00' },
+    Session: { getScriptTimeZone: () => 'Europe/Paris' },
+    ...services,
+  };
+  bac.globalThis = bac;
+  vm.createContext(bac);
+  ['SocleErreurs.gs', 'SocleReprises.gs', 'SocleApi.gs', 'Classify.gs', 'Code.gs']
+    .forEach((nom) => vm.runInContext(
+      fs.readFileSync(path.join(DOSSIER, nom), 'utf8'), bac, { filename: nom }));
+  return (expression) => vm.runInContext(expression, bac);
+};
+
 const MOI = makeIdentity('alice@cooperl.test',
   ['cooperl.test', 'cooperl-secondaire.test', '@AVEC-AROBASE.test '],
   ['client.test']);
@@ -236,22 +262,7 @@ section('F bis. Un Drive illisible se compte, il ne disparaît pas');
   // ne sont pas lisibles rendait `[]`, et `[]` devient « propriétaire inconnu »
   // dans driveOwnership_. Rien ne distinguait « ce Drive n'a aucun membre » de
   // « je n'ai pas su les lire », et le rapport se déclarait complet.
-  const monter = (reponse) => {
-    const bac = {
-      console: { log: () => {}, warn: () => {}, error: () => {} },
-      JSON, Math, Number, String, Object, Array, Boolean, RegExp, Error, Date,
-      CacheService: { getUserCache: () => ({ get: () => null, put: () => {} }) },
-      Utilities: { sleep: () => {}, formatDate: () => '2026-09-12 00:00:00' },
-      Session: { getScriptTimeZone: () => 'Europe/Paris' },
-      Drive: { Permissions: { list: reponse } },
-    };
-    bac.globalThis = bac;
-    vm.createContext(bac);
-    ['SocleErreurs.gs', 'SocleReprises.gs', 'SocleApi.gs', 'Classify.gs', 'Code.gs']
-      .forEach((nom) => vm.runInContext(
-        fs.readFileSync(path.join(DOSSIER, nom), 'utf8'), bac, { filename: nom }));
-    return (expression) => vm.runInContext(expression, bac);
-  };
+  const monter = (reponse) => monterProjet({ Drive: { Permissions: { list: reponse } } });
 
   // Drive lisible : deux membres, rien d'absorbé.
   const lisible = monter(() => ({
@@ -295,6 +306,101 @@ section('F bis. Un Drive illisible se compte, il ne disparaît pas');
   egal(passager("driveMembers_('D3').length"), 1,
     'une surcharge passagère est rattrapée par les reprises');
   egal(passager('SocleErreurs.bilan().total'), 0, 'et rien n’est absorbé');
+}
+
+section('F ter. Créateur réel d’un fichier (Drive Activity)');
+{
+  // Le défaut de la 5.4.0 : `resp` était déclaré par `const` DANS le try, et
+  // lu après lui. Avec `var`, hissé à la fonction, cela marchait ; la
+  // conversion en ES6+ l'a enfermé dans le bloc, et chaque appel réussi levait
+  // « resp is not defined ». Seul l'appel échoué, rattrapé par le catch,
+  // rendait encore quelque chose — c'est pourquoi rien ne se voyait ici.
+  //
+  // La réponse simulée a la forme exacte de l'API Drive Activity v2 : acteur
+  // en `people/<id>`, cible en `items/<id>`, jamais d'adresse.
+  const requetes = [];
+  const pages = {
+    '': {
+      activities: [
+        {
+          primaryActionDetail: { create: { new: {} } },
+          actors: [{ user: { knownUser: { personName: 'people/111', isCurrentUser: false } } }],
+          targets: [{ driveItem: { name: 'items/F1', title: 'Budget.xlsx' } }],
+        },
+        {
+          primaryActionDetail: { create: { upload: {} } },
+          actors: [{ user: { knownUser: { personName: 'people/222' } } }],
+          targets: [
+            { driveItem: { name: 'items/F2', title: 'a.pdf' } },
+            { driveItem: { name: 'items/F3', title: 'b.pdf' } },
+          ],
+        },
+        {
+          // Un compte supprimé n'a plus d'identifiant : on ne devine pas.
+          primaryActionDetail: { create: { new: {} } },
+          actors: [{ user: { deletedUser: {} } }],
+          targets: [{ driveItem: { name: 'items/F4', title: 'orphelin.doc' } }],
+        },
+      ],
+      nextPageToken: 'P2',
+    },
+    P2: {
+      activities: [{
+        primaryActionDetail: { create: { copy: {} } },
+        actors: [{ user: { knownUser: { personName: 'people/333' } } }],
+        targets: [{ driveItem: { name: 'items/F5', title: 'copie.doc' } }],
+      }],
+    },
+  };
+  const projet = monterProjet({
+    DriveActivity: {
+      Activity: {
+        query: (requete) => {
+          requetes.push(requete);
+          const page = pages[requete.pageToken || ''];
+          // Le vrai service refuse un jeton qu'il n'a pas émis ; le faux aussi,
+          // sans quoi un jeton mal transmis passerait pour une dernière page.
+          if (!page) throw new Error(`Invalid value for pageToken: ${requete.pageToken}`);
+          return page;
+        },
+      },
+    },
+  });
+
+  // Aucun accès direct au résultat : si l'appel lève, le banc le dit et
+  // continue, au lieu de s'écrouler sur l'échec qu'il vient de constater.
+  const appeler = (expression) => {
+    try { return { valeur: projet(expression) }; } catch (erreur) { return { erreur }; }
+  };
+
+  const premiere = appeler("creatorsForDrive('D1', null)");
+  verifier(!premiere.erreur,
+    `un appel réussi ne lève pas (obtenu : ${premiere.erreur && premiere.erreur.message})`);
+  const r1 = premiere.valeur || {};
+  egal(r1.available, true, 'le service répond : le créateur est disponible');
+  egal(r1.creators, { F1: '111', F2: '222', F3: '222' },
+    'chaque cible est rattachée à son créateur, sans le préfixe « people/ »');
+  egal(r1.nextPageToken, 'P2', 'le jeton de page suivante est transmis au navigateur');
+  verifier(r1.creators && !('F4' in r1.creators),
+    'un créateur dont le compte a disparu reste inconnu — jamais attribué au hasard');
+  egal(requetes[0] && requetes[0].ancestorName, 'items/D1',
+    'la requête porte sur le Drive demandé');
+  egal(requetes[0] && requetes[0].filter, 'detail.action_detail_case:CREATE',
+    'et ne demande que les créations');
+
+  const derniere = appeler("creatorsForDrive('D1', 'P2')");
+  const r2 = derniere.valeur || {};
+  egal(r2.creators, { F5: '333' }, 'la page suivante est lue avec son jeton');
+  egal(r2.nextPageToken, null, 'et la dernière page le dit');
+
+  // Le repli, lui, marchait déjà — c'est pourquoi le défaut ne se voyait pas.
+  // Un service avancé non activé n'existe pas dans la portée globale.
+  const sansService = monterProjet({});
+  const repli = sansService("creatorsForDrive('D1', null)");
+  egal(repli.available, false,
+    'sans le service avancé, le créateur est déclaré indisponible, sans échouer');
+  verifier(/DriveActivity/.test(String(repli.error)),
+    'et l’erreur nomme le service à activer');
 }
 
 section('G. Surface publique de Code.gs');

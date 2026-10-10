@@ -80,8 +80,8 @@ const PARTNER_DOMAINS = [
 // GÉNÉRÉS par build_apps_script.py — ne pas éditer ici.
 // APP_VERSION vient du fichier VERSION à la racine ; APP_BUILD est horodaté à chaque build,
 // pour que le pied de page change même quand le numéro de version, lui, ne bouge pas.
-const APP_VERSION = '5.4.0';
-const APP_BUILD = '20260912-1335';
+const APP_VERSION = '5.4.1';
+const APP_BUILD = '20261010-1236';
 
 const HYDRATE_BUDGET_MS = 120000;   // au-delà, les éléments restants repartent en « pending »
 const CACHE_TTL = 21600;            // 6 h, maximum autorisé par CacheService
@@ -556,8 +556,15 @@ const toRecord_ = (f, me, names, paths, scope) => {
  *   retombe alors sur le dernier contributeur, sans échouer.
  */
 function creatorsForDrive(driveId, pageToken) {
+  // `resp` se déclare HORS du try. En 5.2.0, `var resp` posé dedans était hissé
+  // à la fonction et tout marchait ; la conversion en `const` de la 5.4.0 l'a
+  // enfermé dans le bloc, et chaque appel réussi levait « resp is not defined ».
+  // Le traitement, lui, reste hors du try à dessein : le
+  // catch ne doit rattraper que l'appel au service, sans quoi une erreur de
+  // traitement se déguiserait en « service non activé » et passerait inaperçue.
+  let resp;
   try {
-    const resp = withRetry_(() => DriveActivity.Activity.query({
+    resp = withRetry_(() => DriveActivity.Activity.query({
         ancestorName: `items/${driveId}`,
         filter: 'detail.action_detail_case:CREATE',
         pageSize: 500,

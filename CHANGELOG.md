@@ -7,6 +7,33 @@ et ce projet adhère au [Semantic Versioning](https://semver.org/lang/fr/).
 
 ---
 
+## [5.4.1] - 2026-10-10
+
+### Corrigé
+
+- **Le créateur réel d'un fichier n'était jamais obtenu, et l'analyse
+  s'interrompait.** Dans `creatorsForDrive`, la réponse de l'API Drive Activity
+  était déclarée par `const` à l'intérieur du `try`, puis lue après lui. En
+  5.2.0, `var` était hissé à la fonction et tout marchait ; la conversion en
+  ES6+ de la 5.4.0 l'a enfermé dans le bloc. Chaque appel **réussi** levait
+  alors « resp is not defined », et l'erreur remontait jusqu'au navigateur :
+  l'analyse s'arrêtait au premier Drive partagé d'une autre organisation, sans
+  parcourir les Drives ni les dossiers suivants. Seul le cas où le service
+  avancé n'est pas activé, rattrapé par le `catch`, fonctionnait encore — d'où
+  un défaut invisible tant que l'on n'audite que ses propres Drives.
+- Le `catch` ne rattrape toujours que l'appel au service : une erreur dans le
+  traitement de la réponse remonte, au lieu de se déguiser en « service non
+  activé ».
+
+### Ajouté
+
+- Banc : cas **F ter**, qui simule l'API Drive Activity avec des réponses de la
+  forme exacte qu'elle rend (`people/<id>`, `items/<id>`, pagination, compte
+  supprimé) et vérifie le repli sans service. Il échoue sur la 5.4.0. Le
+  montage du projet dans un bac simulé est mis en commun (`monterProjet`).
+
+---
+
 ## [5.4.0] - 2026-09-12
 
 Portage sur le socle (`socle-apps-script` v0.9.0). Cinq modules recopiés,
