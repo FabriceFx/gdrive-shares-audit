@@ -1,0 +1,6 @@
+{
+  "typesAcceptes": {
+    "SocleErreurs.gs|TS2339|Property 'quoi' does not exist on type 'Error'.": 1,
+    "SocleErreurs.gs|TS2339|Property 'quoiFaire' does not exist on type 'Error'.": 1
+  }
+}

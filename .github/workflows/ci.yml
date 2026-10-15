@@ -1,0 +1,18 @@
+# Les mêmes contrôles que le hook Git et le hook Claude Code, sur chaque
+# poussée : un seul verifier.js, tenu dans le socle.
+#
+# Le déploiement chez Google, lui, ne se fait pas d'ici : il demanderait de
+# confier à GitHub un jeton clasp porteur de toutes les portées du compte.
+name: Vérification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  verifier:
+    uses: FabriceFx/socle-apps-script/.github/workflows/verifier.yml@v0.13.0
+    with:
+      socle: FabriceFx/socle-apps-script
+      ref: v0.13.0
